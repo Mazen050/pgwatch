@@ -14,7 +14,6 @@ import (
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/sinks"
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/sources"
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/webserver"
-	"github.com/jackc/pgx/v5"
 	flags "github.com/jessevdk/go-flags"
 )
 
@@ -122,8 +121,7 @@ func (c *Options) GetConfigKind(arg string) (_ Kind, err error) {
 }
 
 func (c *Options) IsPgConnStr(arg string) bool {
-	_, err := pgx.ParseConfig(arg)
-	return err == nil
+	return db.IsPgConnStr(arg)
 }
 
 // InitMetricReader creates a new source reader based on the configuration kind from the options.
@@ -207,7 +205,7 @@ func (c *Options) ValidateConfig() error {
 		c.Metrics.Metrics = c.Sources.Sources
 	}
 	if c.Sources.Refresh <= 1 {
-		return errors.New("--servers-refresh-loop-seconds must be greater than 1")
+		return errors.New("--refresh must be greater than 1")
 	}
 	if c.Sources.MaxParallelConnectionsPerDb < 1 {
 		return errors.New("--max-parallel-connections-per-db must be >= 1")
@@ -215,7 +213,7 @@ func (c *Options) ValidateConfig() error {
 
 	// validate that input is boolean is set
 	if c.Sinks.BatchingDelay <= 0 || c.Sinks.BatchingDelay > time.Hour {
-		return errors.New("--batching-delay-ms must be between 0 and 1h")
+		return errors.New("--batching-delay must be between 0 and 1h")
 	}
 
 	return nil

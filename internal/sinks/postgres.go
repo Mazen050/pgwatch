@@ -18,6 +18,7 @@ import (
 	migrator "github.com/cybertec-postgresql/pgx-migrator"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -536,6 +537,30 @@ func (pgw *PostgresWriter) AddDBUniqueMetricToListingTable(dbUnique, metric stri
 	return err
 }
 
+func NewPostgresSinkMigrator(ctx context.Context, connStr string) (db.Migrator, error) {
+	conn, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		return nil, err
+	}
+	pgw := &PostgresWriter{
+		ctx:    ctx,
+		sinkDb: conn,
+	}
+	exists, err := db.DoesSchemaExist(ctx, conn, "admin")
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return pgw, nil
+	}
+	for _, sql := range metricSchemaSQLs {
+		if _, err = conn.Exec(ctx, sql); err != nil {
+			return nil, err
+		}
+	}
+	return pgw, nil
+}
+
 var initMigrator = func(pgw *PostgresWriter) (*migrator.Migrator, error) {
 	return migrator.New(
 		migrator.TableName("admin.migration"),
@@ -575,6 +600,23 @@ var migrations func() migrator.Option = func() migrator.Option {
 			Func: func(context.Context, pgx.Tx) error {
 				// "migration" table will be created automatically
 				return nil
+			},
+		},
+
+		&migrator.Migration{
+			Name: "01180 Apply admin functions migrations for v5",
+			Func: func(ctx context.Context, tx pgx.Tx) error {
+				_, err := tx.Exec(ctx, `DROP FUNCTION IF EXISTS admin.ensure_partition_metric_dbname_time`)
+				if err != nil {
+					return err
+				}
+
+				_, err = tx.Exec(ctx, sqlMetricEnsurePartitionPostgres)
+				if err != nil {
+					return err
+				}
+				_, err = tx.Exec(ctx, sqlMetricAdminFunctions)
+				return err
 			},
 		},
 
