@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"strings"
+	// "sync"
+
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/cmdopts"
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/log"
 	"github.com/cybertec-postgresql/pgwatch/v5/internal/metrics"
@@ -335,78 +339,6 @@ func TestReaper_LoadSources(t *testing.T) {
 	})
 }
 
-// func TestReaper_LoadSources_PauseClearsExisting(t *testing.T) {
-// 	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-
-// 	source := sources.Source{Name: "db1", IsEnabled: true, Kind: sources.SourcePostgres}
-// 	reader := &testutil.MockSourcesReaderWriter{
-// 		GetSourcesFunc: func() (sources.Sources, error) {
-// 			return sources.Sources{source}, nil
-// 		},
-// 	}
-
-// 	pausefile := filepath.Join(t.TempDir(), "pausefile")
-// 	r := NewReaper(ctx, &cmdopts.Options{
-// 		SourcesReaderWriter: reader,
-// 		Metrics:             metrics.CmdOpts{EmergencyPauseTriggerfile: pausefile},
-// 	})
-
-// 	// initial load
-// 	require.NoError(t, r.LoadSources(ctx))
-// 	require.Len(t, r.monitoredSources, 1)
-
-// 	// enable pause
-// 	require.NoError(t, os.WriteFile(pausefile, []byte("1"), 0644))
-
-// 	require.NoError(t, r.LoadSources(ctx))
-// 	assert.Len(t, r.monitoredSources, 0)
-// }
-
-
-// func TestReaper_LoadSources_DisabledSourcesIgnored(t *testing.T) {
-// 	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-
-// 	enabled := sources.Source{Name: "enabled", IsEnabled: true, Kind: sources.SourcePostgres}
-// 	disabled := sources.Source{Name: "disabled", IsEnabled: false, Kind: sources.SourcePostgres}
-
-// 	reader := &testutil.MockSourcesReaderWriter{
-// 		GetSourcesFunc: func() (sources.Sources, error) {
-// 			return sources.Sources{enabled, disabled}, nil
-// 		},
-// 	}
-
-// 	r := NewReaper(ctx, &cmdopts.Options{SourcesReaderWriter: reader})
-// 	require.NoError(t, r.LoadSources(ctx))
-
-// 	assert.Len(t, r.monitoredSources, 1)
-// 	assert.NotNil(t, r.monitoredSources.GetMonitoredDatabase("enabled"))
-// 	assert.Nil(t, r.monitoredSources.GetMonitoredDatabase("disabled"))
-// }
-
-// func TestReaper_LoadSources_GroupAndEnabledCombined(t *testing.T) {
-// 	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-
-// 	sourcesList := sources.Sources{
-// 		{Name: "a", IsEnabled: true, Group: "g1", Kind: sources.SourcePostgres},
-// 		{Name: "b", IsEnabled: false, Group: "g1", Kind: sources.SourcePostgres},
-// 		{Name: "c", IsEnabled: true, Group: "g2", Kind: sources.SourcePostgres},
-// 	}
-
-// 	reader := &testutil.MockSourcesReaderWriter{
-// 		GetSourcesFunc: func() (sources.Sources, error) {
-// 			return sourcesList, nil
-// 		},
-// 	}
-
-// 	r := NewReaper(ctx, &cmdopts.Options{
-// 		SourcesReaderWriter: reader,
-// 		Sources:             sources.CmdOpts{Groups: []string{"g1"}},
-// 	})
-
-// 	require.NoError(t, r.LoadSources(ctx))
-// 	assert.Len(t, r.monitoredSources, 1)
-// 	assert.Equal(t, "a", r.monitoredSources[0].Name)
-// }
 
 
 // func TestReaper_ShutdownOldWorkers_MetricRemovedFromPreset(t *testing.T) {
@@ -460,54 +392,6 @@ func TestReaper_LoadSources(t *testing.T) {
 // }
 
 
-// // func TestReaper_FetchMetric_PrimaryOnlySkippedOnStandby(t *testing.T) {
-// // 	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-
-// // 	r := NewReaper(ctx, &cmdopts.Options{})
-
-// // 	md := &sources.SourceConn{
-// // 		Source: sources.Source{Name: "db1"},
-// // 		IsInRecovery: true,
-// // 	}
-
-// // 	metricDefs.SetMetricDef(metrics.Metric{
-// // 		Name:       "primary_metric",
-// // 		Scope:      metrics.ScopeInstance,
-// // 		OnlyMaster: true,
-// // 	})
-
-// // 	env, err := r.FetchMetric(ctx, md, "primary_metric")
-// // 	assert.NoError(t, err)
-// // 	assert.Nil(t, env)
-// // }
-
-
-// // func TestReaper_FetchMetric_UsesInstanceCache(t *testing.T) {
-// // 	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-
-// // 	r := NewReaper(ctx, &cmdopts.Options{
-// // 		Metrics: metrics.CmdOpts{InstanceLevelCacheMaxSeconds: 60},
-// // 	})
-
-// // 	md := &sources.SourceConn{
-// // 		Source: sources.Source{Name: "db1"},
-// // 	}
-
-// // 	metricDefs.SetMetricDef(metrics.Metric{
-// // 		Name:           "cached_metric",
-// // 		IsInstanceLevel: true,
-// // 	})
-
-// // 	// Prime cache
-// // 	r.measurementCache.Put("db1:cached_metric", metrics.Measurements{
-// // 		metrics.NewMeasurement(time.Now().UnixNano()),
-// // 	})
-
-// // 	env, err := r.FetchMetric(ctx, md, "cached_metric")
-// // 	assert.NoError(t, err)
-// // 	assert.NotNil(t, env)
-// // }
-
 
 func TestReaper_Ready(t *testing.T) {
 	ctx := context.Background()
@@ -526,6 +410,9 @@ func TestReaper_PrintMemStats(t *testing.T) {
 		r.PrintMemStats()
 	})
 }
+
+// * no cov effect
+
 // func TestReaper_WriteMeasurements_ContextCancel(t *testing.T) {
 // 	ctx, cancel := context.WithCancel(context.Background())
 // 	defer cancel()
@@ -539,37 +426,11 @@ func TestReaper_PrintMemStats(t *testing.T) {
 
 // 	time.Sleep(10 * time.Millisecond)
 // }
-func TestReaper_CreateSourceHelpers_EarlyReturn(t *testing.T) {
-	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
-	r := NewReaper(ctx, &cmdopts.Options{})
-
-	md := &sources.SourceConn{
-		Source: sources.Source{
-			Name: "db1",
-			Kind: sources.SourcePgBouncer, // non-postgres
-		},
-	}
-
-	r.CreateSourceHelpers(ctx, r.logger, md)
-}
 
 
+/////////////////////////////////////////////////////////////////////////////////////////////////
+//* --- Mocks ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-// --- Mocks ---
-
-// MockSinkWriter simulates the Sinks interface
 // MockSinkWriter simulates the Sinks interface
 type MockSinkWriter struct {
 	WriteCalled  bool
@@ -775,4 +636,191 @@ func TestFetchMetric_EmptySQL_Ignored(t *testing.T) {
 	// 3. Assertions
 	assert.NoError(t, err)
 	assert.Nil(t, envelope)
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+// * CreateSourceHelpers
+
+func TestReaper_CreateSourceHelpers(t *testing.T) {
+	// 1. Setup the Hook to capture logs
+	logger, hook := test.NewNullLogger()
+	ctx := context.Background()
+
+	// 2. Define Test Cases
+	tests := []struct {
+		name              string
+		sourceName        string
+		sourceType        sources.Kind // "postgres", "mysql", etc.
+		inRecovery        bool
+		inPrevLoop        bool
+		// Config fields separated out to avoid guessing the cmdopts struct type name
+		createHelpers     bool
+		tryCreateExts     string
+		
+		expectedLogMsgs   []string
+		unexpectedLogMsgs []string
+	}{
+		{
+			name:          "Skip if Non-Postgres Source",
+			sourceName:    "PgBouncer",
+			sourceType:    sources.SourcePgBouncer,
+			inRecovery:    false,
+			createHelpers: true,
+			unexpectedLogMsgs: []string{"trying to create helper objects"},
+		},
+		{
+			name:          "Skip if In Recovery",
+			sourceName:    "standby_db",
+			sourceType:    sources.SourcePostgres,
+			inRecovery:    true,
+			createHelpers: true,
+			unexpectedLogMsgs: []string{"trying to create helper objects"},
+		},
+		{
+			name:          "Skip if Already Created (In Prev Loop)",
+			sourceName:    "existing_db",
+			sourceType:    sources.SourcePostgres,
+			inRecovery:    false,
+			inPrevLoop:    true,
+			createHelpers: true,
+			tryCreateExts: "plpythonu",
+			unexpectedLogMsgs: []string{
+				"trying to create helper objects",
+				"trying to create extensions",
+			},
+		},
+		{
+			name:          "Happy Path: Create Helpers",
+			sourceName:    "fresh_primary",
+			sourceType:    sources.SourcePostgres,
+			inRecovery:    false,
+			inPrevLoop:    false,
+			createHelpers: true,
+			expectedLogMsgs: []string{"trying to create helper objects if missing"},
+		},
+		{
+			name:          "Happy Path: Create Extensions",
+			sourceName:    "fresh_primary_ext",
+			sourceType:    sources.SourcePostgres,
+			inRecovery:    false,
+			inPrevLoop:    false,
+			tryCreateExts: "pg_stat_statements",
+			expectedLogMsgs: []string{"trying to create extensions if missing"},
+		},
+		{
+			name:          "Happy Path: Create Both",
+			sourceName:    "fresh_primary_full",
+			sourceType:    sources.SourcePostgres,
+			inRecovery:    false,
+			inPrevLoop:    false,
+			createHelpers: true,
+			tryCreateExts: "pg_stat_statements",
+			expectedLogMsgs: []string{
+				"trying to create helper objects if missing",
+				"trying to create extensions if missing",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset log hook for each test
+			hook.Reset()
+
+			// Setup Reaper
+			// We initialize Options empty, then set the nested fields manually
+			// This avoids needing to know the exact type name of the 'Sources' field
+			opts := &cmdopts.Options{}
+			r := &Reaper{
+				Options:              opts,
+				logger:               logger,
+				prevLoopMonitoredDBs: make(sources.SourceConns, 0),
+			}
+			
+			// Manually assign the config values to the promoted Sources field
+			// (Assuming r.Sources is a struct, not a pointer, which is standard for CLI opts)
+			r.Sources.CreateHelpers = tt.createHelpers
+			r.Sources.TryCreateListedExtsIfMissing = tt.tryCreateExts
+
+			// Setup Source
+			// We cast the string to sources.Kind
+			src := &sources.SourceConn{
+				Source: sources.Source{
+					Name: tt.sourceName,
+					Kind: tt.sourceType,
+				},
+			}
+			// Assign IsInRecovery separately to handle potential struct embedding issues
+			src.IsInRecovery = tt.inRecovery
+
+			// Handle PrevLoop setup
+			if tt.inPrevLoop {
+				r.prevLoopMonitoredDBs = append(r.prevLoopMonitoredDBs, src)
+			}
+
+
+			// --- ADDED: MOCK DATABASE SETUP ---
+            // 1. Create the mock pool
+            mock, err := pgxmock.NewPool()
+            if err != nil {
+                t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+            }
+            defer mock.Close()
+
+            // 2. Assign the mock to your SourceConn.
+            // Note: Verify the field name in your struct. It is usually 'PgConn', 'Conn', or 'Pool'.
+            // The field type must be an interface (like PgxPoolIface) for the mock to work.
+            src.Conn = mock 
+
+            // 3. Setup Expectations for "Happy Path"
+            // Since the code tries to run SQL, the mock will complain if we don't tell it what to expect.
+            if strings.Contains(tt.name, "Happy Path") {
+                // Determine what to expect based on the test case
+                if strings.Contains(tt.name, "Extensions") || strings.Contains(tt.name, "Both") {
+                    // Expect check for existing extensions (SELECT ...)
+					rows := pgxmock.NewRows([]string{"name"}).AddRow("pg_stat_statements").AddRow("plpythonu")
+                    mock.ExpectQuery("select name::text from pg_available_extensions").WillReturnRows(rows)
+                    // Expect extension creation (CREATE EXTENSION ...)
+					mock.ExpectQuery("create extension .*").WillReturnRows(pgxmock.NewRows([]string{}))}
+            }
+
+
+			srcL := logger.WithField("source", src.Name)
+
+			// Execute
+			assert.NotPanics(t, func() {
+				r.CreateSourceHelpers(ctx, srcL, src)
+			})
+
+			// Verify Logs
+			entries := hook.AllEntries()
+
+			// Check Expected Messages
+			for _, exp := range tt.expectedLogMsgs {
+				found := false
+				for _, e := range entries {
+					if strings.Contains(e.Message, exp) {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected log message not found: %s", exp)
+			}
+
+			// Check Unexpected Messages
+			for _, unexp := range tt.unexpectedLogMsgs {
+				found := false
+				for _, e := range entries {
+					if strings.Contains(e.Message, unexp) {
+						found = true
+						break
+					}
+				}
+				assert.False(t, found, "Found unexpected log message: %s", unexp)
+			}
+		})
+	}
 }

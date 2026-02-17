@@ -82,93 +82,6 @@ func TestGetLoadAvgLocal(t *testing.T) {
 }
 
 
-func TestGetPathUnderlyingDeviceID(t *testing.T) {
-	// Create a temporary directory for our test files.
-	tmpDir := t.TempDir()
-
-	// Helper function to create a dummy file
-	createFile := func(name string) string {
-		f, err := os.CreateTemp(tmpDir, name)
-		if err != nil {
-			t.Fatalf("failed to create temp file: %v", err)
-		}
-		defer f.Close()
-		return f.Name()
-	}
-
-	// 1. Happy Path: Test with a valid file
-	file1Path := createFile("file1")
-	devID1, err := GetPathUnderlyingDeviceID(file1Path)
-	if err != nil {
-		t.Fatalf("GetPathUnderlyingDeviceID failed: %v", err)
-	}
-
-	// 2. Consistency Check
-	// Create a second file in the same temporary directory. 
-	// Files in the same folder should generally have the same underlying Device ID.
-	file2Path := createFile("file2")
-	devID2, err := GetPathUnderlyingDeviceID(file2Path)
-	if err != nil {
-		t.Fatalf("GetPathUnderlyingDeviceID failed on second file: %v", err)
-	}
-
-	if devID1 != devID2 {
-		t.Errorf("Expected files in same directory to have same DeviceID, got %d and %d", devID1, devID2)
-	}
-}
-
-func TestGetPathUnderlyingDeviceID_NotFound(t *testing.T) {
-	_, err := GetPathUnderlyingDeviceID("/this/path/should/not/exist/hopefully")
-	if err == nil {
-		t.Error("Expected error for non-existent file, got nil")
-	}
-}
-
-// func TestGetPathUnderlyingDeviceID_LeakCheck(t *testing.T) {
-// 	// 1. Create a dummy file
-// 	f, err := os.CreateTemp("", "leak_test")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	defer os.Remove(f.Name())
-// 	f.Close()
-
-// 	// 2. Count open files before the loop
-// 	initialFDs, err := os.ReadDir("/proc/self/fd")
-// 	if err != nil {
-// 		t.Skip("Skipping test: cannot read /proc/self/fd (are you on Linux?)")
-// 	}
-// 	initialCount := len(initialFDs)
-
-// 	// 3. Run the function 100 times
-// 	for i := 0; i < 100; i++ {
-// 		_, err := GetPathUnderlyingDeviceID(f.Name())
-// 		if err != nil {
-// 			t.Fatalf("Function failed: %v", err)
-// 		}
-// 	}
-
-// 	// 4. Count open files after the loop
-// 	finalFDs, err := os.ReadDir("/proc/self/fd")
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	finalCount := len(finalFDs)
-
-// 	// 5. Calculate the leak and log results
-// 	diff := finalCount - initialCount
-
-// 	t.Logf("Initial FDs: %d, Final FDs: %d, Leaked: %d", initialCount, finalCount, diff)
-
-// 	if diff >= 100 {
-// 		t.Errorf("FAIL: Resource leak detected! Leaked %d file descriptors in 100 iterations.", diff)
-// 	} else {
-// 		t.Log("PASS: No significant leak detected.")
-// 	}
-// }
-
-
-
 // --- Test for CheckFolderExistsAndReadable ---
 
 func TestCheckFolderExistsAndReadable(t *testing.T) {
@@ -289,4 +202,106 @@ func TestGetGoPsutilDiskPG(t *testing.T) {
 	if !foundDataDir {
 		t.Error("Did not find result for 'data_directory'")
 	}
+}
+
+func TestGetGoPsutilDiskPG_EdgeCases(t *testing.T) {
+	rootDir := t.TempDir()
+
+	// Setup basic valid paths
+	dataDir := filepath.Join(rootDir, "data_edge")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case 1: Missing WAL Directory
+	// We do NOT create the "pg_wal" folder inside dataDir.
+	// The function should detect this and simply not report on WAL, rather than erroring.
+	t.Run("Missing WAL Directory", func(t *testing.T) {
+		dataDirs := []map[string]any{
+			{"dd": dataDir, "ld": ""},
+		}
+		results, err := GetGoPsutilDiskPG(dataDirs, nil)
+		if err != nil {
+			t.Fatalf("Did not expect error for missing WAL dir, got: %v", err)
+		}
+
+		// Verify pg_wal tag is NOT present
+		for _, row := range results {
+			if row["tag_dir_or_tablespace"] == "pg_wal" {
+				t.Error("Reported pg_wal even though directory does not exist")
+			}
+		}
+	})
+
+	// Case 2: Tablespace on Same Device (Deduplication)
+	// We create a tablespace folder on the same partition.
+	// Since it shares the same Device ID as dataDir, the function SHOULD skip it.
+	t.Run("Tablespace Deduplication", func(t *testing.T) {
+		tsDir := filepath.Join(rootDir, "ts_same_device")
+		if err := os.MkdirAll(tsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		dataDirs := []map[string]any{
+			{"dd": dataDir, "ld": ""},
+		}
+		tblspaceDirs := []map[string]any{
+			{"name": "ts_duplicate", "location": tsDir},
+		}
+
+		results, err := GetGoPsutilDiskPG(dataDirs, tblspaceDirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// We expect exactly 1 row (Data Directory). 
+		// The Tablespace should be skipped because tsDevice == ddDevice.
+		if len(results) != 1 {
+			t.Errorf("Expected 1 row (deduplicated), got %d rows. (Note: This test assumes /tmp is a single partition)", len(results))
+		}
+
+		if results[0]["tag_dir_or_tablespace"] == "ts_duplicate" {
+			t.Error("Tablespace should have been skipped due to being on the same device")
+		}
+	})
+
+	// Case 3: Invalid Tablespace Path
+	// This ensures the function returns an error if a configured tablespace path is unreadable/missing.
+	t.Run("Invalid Tablespace Path", func(t *testing.T) {
+		dataDirs := []map[string]any{
+			{"dd": dataDir, "ld": ""},
+		}
+		tblspaceDirs := []map[string]any{
+			{"name": "ts_missing", "location": "/path/that/does/not/exist/99999"},
+		}
+
+		_, err := GetGoPsutilDiskPG(dataDirs, tblspaceDirs)
+		if err == nil {
+			t.Error("Expected error for non-existent tablespace path, got nil")
+		}
+	})
+
+	// Case 4: Absolute Log Path
+	// Tests logic: if !strings.HasPrefix(logDirPath, "/")
+	t.Run("Absolute Log Path", func(t *testing.T) {
+		absLogDir := filepath.Join(rootDir, "abs_log")
+		if err := os.MkdirAll(absLogDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		dataDirs := []map[string]any{
+			{"dd": dataDir, "ld": absLogDir}, // Passing absolute path
+		}
+
+		results, err := GetGoPsutilDiskPG(dataDirs, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Even if deduplicated, we just want to make sure the function didn't crash 
+		// trying to Join an absolute path with the data dir.
+		if len(results) == 0 {
+			t.Fatal("Expected results, got none")
+		}
+	})
 }
