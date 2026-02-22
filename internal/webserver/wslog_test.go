@@ -42,13 +42,12 @@ func TestServeWsLog_Success(t *testing.T) {
 	// send ping message to keep connection alive
 	assert.NoError(t, ws.WriteMessage(websocket.PingMessage, nil))
 
-	// send some log message
-	ts.Info("Test message")
 	var msg []byte
 	var msgType int
 
 	require.Eventually(t, func() bool {
-    	if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		ts.Info("Test message")
+		if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
 			return false
 		}
 		tpe, m, err := ws.ReadMessage()
