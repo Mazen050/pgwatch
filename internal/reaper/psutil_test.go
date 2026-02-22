@@ -10,6 +10,8 @@ import (
 	"maps"
 	"os"
 
+	"path/filepath"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -105,4 +107,72 @@ func TestGetPathUnderlyingDeviceID_NotFound(t *testing.T) {
 	}
 	_, err := GetPathUnderlyingDeviceID("/this/path/should/not/exist/nofile")
 	assert.Error(t, err)
+}
+
+func TestGetGoPsutilDiskPG(t *testing.T) {
+	rootDir := t.TempDir()
+	
+	dataDir := filepath.Join(rootDir, "data")
+	logDirRel := "log"
+	logDirAbs := filepath.Join(dataDir, logDirRel)
+	walDir := filepath.Join(dataDir, "pg_wal")
+	tsDir := filepath.Join(rootDir, "tablespace_1")
+
+	// Create directories
+	dirs := []string{dataDir, logDirAbs, walDir, tsDir}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Prepare Input maps
+	dataDirs := []map[string]any{
+		{
+			"dd": dataDir,
+			"ld": logDirRel,
+		},
+	}
+
+	tblspaceDirs := []map[string]any{
+		{
+			"name":     "ts1",
+			"location": tsDir,
+		},
+	}
+
+	// Run the function
+	results, err := GetGoPsutilDiskPG(dataDirs, tblspaceDirs)
+	if err != nil {
+		t.Fatalf("GetGoPsutilDiskPG returned error: %v", err)
+	}
+
+	// Should at least return the Data Directory metrics
+	if len(results) == 0 {
+		t.Fatal("Expected results, got 0 rows")
+	}
+
+	foundDataDir := false
+	for _, row := range results {
+		// Basic validation of fields
+		if _, ok := row["total"]; !ok {
+			t.Error("Row missing 'total' field")
+		}
+		if _, ok := row["percent"]; !ok {
+			t.Error("Row missing 'percent' field")
+		}
+
+		// Check tag matches
+		tag := row["tag_dir_or_tablespace"]
+		if tag == "data_directory" {
+			foundDataDir = true
+			if row["tag_path"] != dataDir {
+				t.Errorf("Expected data_dir path %s, got %s", dataDir, row["tag_path"])
+			}
+		}
+	}
+
+	if !foundDataDir {
+		t.Error("Did not find result for 'data_directory'")
+	}
 }
