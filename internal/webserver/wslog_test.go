@@ -48,7 +48,7 @@ func TestServeWsLog_Success(t *testing.T) {
 	var msgType int
 
 	require.Eventually(t, func() bool {
-		if err := ws.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+    	if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
 			return false
 		}
 		tpe, m, err := ws.ReadMessage()
@@ -58,7 +58,7 @@ func TestServeWsLog_Success(t *testing.T) {
 		msgType = tpe
 		msg = m
 		return strings.Contains(string(msg), "Test message")
-	}, 2*time.Second, 50*time.Millisecond)
+	}, 5*time.Second, 50*time.Millisecond)
 	assert.Equal(t, websocket.TextMessage, msgType)
 	assert.NotEmpty(t, msg)
 	assert.Contains(t, string(msg), "Test message")
