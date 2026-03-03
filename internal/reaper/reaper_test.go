@@ -595,3 +595,31 @@ func TestWriteMeasurements(t *testing.T) {
 	go r.WriteMeasurements(ctx)
 	r.WriteInstanceDown(&sources.SourceConn{})
 }
+
+func TestReady(t *testing.T) {
+	ctx := context.Background()
+	r := NewReaper(ctx, &cmdopts.Options{})
+
+	assert.False(t, r.Ready())
+
+	r.ready.Store(true)
+	assert.True(t, r.Ready())
+}
+
+func TestPrintMemStats(t *testing.T) {
+	ctx := log.WithLogger(context.Background(), log.NewNoopLogger())
+	r := NewReaper(ctx, &cmdopts.Options{})
+
+	assert.NotPanics(t, func() {
+		r.PrintMemStats()
+	})
+}
+
+func TestPrintMemStats_NoLogger(t *testing.T) {
+	ctx := context.Background()
+	r := NewReaper(ctx, &cmdopts.Options{})
+
+	assert.NotPanics(t, func() {
+		r.PrintMemStats()
+	})
+}
